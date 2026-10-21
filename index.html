@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sheep Shearer</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <canvas id="scene"></canvas>
+
+  <div id="hud">
+    <div class="card">
+      <div class="title">Sheep Shearer</div>
+      <div class="progress"><div id="progress-bar"></div></div>
+      <div class="stats">
+        <span id="progress-text">0% shorn</span>
+        <span id="timer">0:00</span>
+      </div>
+      <div class="stats sub">
+        <span id="region">Choose where to start</span>
+      </div>
+      <div class="stats sub">
+        <span>Fleece <b id="weight">–</b></span>
+        <span id="pieces">in one piece</span>
+      </div>
+      <details id="areas-box">
+        <summary>Areas</summary>
+        <ul id="areas"></ul>
+      </details>
+    </div>
+    <div class="buttons">
+      <button id="btn-next" title="Turn the sheep to the next area">Next area</button>
+      <button id="btn-new" title="Bring in a new sheep">New sheep</button>
+      <button id="btn-demo" title="Watch the sheep being shorn with long blows">Demo</button>
+      <button id="btn-help" title="Controls">?</button>
+      <button id="btn-settings" title="Settings (Esc)">⚙</button>
+    </div>
+  </div>
+  <div id="running">CLIPPERS RUNNING</div>
+  <dl id="hud-controls"></dl>
+  <div id="fps" class="hidden"></div>
+
+  <div id="loading" class="overlay">
+    <div class="panel small"><div class="spinner"></div><p id="loading-text">Loading…</p></div>
+  </div>
+
+  <div id="intro" class="overlay hidden">
+    <div class="panel">
+      <h1>Shear a Merino</h1>
+      <p>Eleven months of wool, about 9 cm deep over the back. Run the comb along the skin and the
+        fleece lifts away in one heavy, springy mat. Long smooth blows keep it in one piece; drag a
+        hanging fleece too hard and it tears.</p>
+      <dl id="intro-controls"></dl>
+      <p class="hint">The sheep turns to the next area by itself when you finish one. Every control can be
+        changed in Settings.</p>
+      <button id="start" class="primary">Start shearing</button>
+    </div>
+  </div>
+
+  <div id="done" class="overlay toast hidden">
+    <div class="panel">
+      <h1>Fleece off!</h1>
+      <dl>
+        <dt>Time</dt><dd id="done-time"></dd>
+        <dt>Greasy fleece</dt><dd id="done-weight"></dd>
+        <dt>Fleece</dt><dd id="done-pieces"></dd>
+      </dl>
+      <button id="done-new" class="primary">Next sheep</button>
+    </div>
+  </div>
+
+  <div id="settings" class="overlay hidden">
+    <div class="panel wide">
+      <header><h2>Settings</h2><button id="settings-close" title="Close (Esc)">✕</button></header>
+      <div id="settings-body"></div>
+    </div>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
