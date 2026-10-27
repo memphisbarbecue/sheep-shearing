@@ -22,7 +22,7 @@ self.onmessage = (ev) => {
   if (m.type === 'step') {
     const t0 = performance.now();
     for (const [i, vx, vy, vz] of m.releases) fleece.release(i, vx, vy, vz);
-    if (m.skirt) fleece.skirtBelly();
+    for (const e of m.cuts) fleece.cutEdge(e);
     fleece.clipper = m.clipper;
     rig.mats.set(m.mats);
     rig.breath = m.breath;

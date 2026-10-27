@@ -49,18 +49,31 @@ The fleece is its own volumetric body, not a texture or a displaced skin:
 * **Two particle layers** over a shared triangulation: the base layer (skin side / cut face) and
   the tip layer (weathered outer surface), joined per column by a **staple** constraint and by
   crossed **shear fibres**. The mat therefore keeps its thickness and bulk when it comes off.
-* **Felted base** (stiff in-plane links plus second-ring stretch-only *felting tethers*, because
-  fibres are longer than the lattice spacing), **loose tips** (staples part easily, resist being
-  packed together), **crimp elasticity** (compliant staples in compression).
+* **No shape memory.** Nothing in the mat remembers the shape it had on the sheep: a cut piece
+  drapes, folds and lies flat on the board. Tips are spaced by their *root* spacing; the links that
+  keep staples upright are sized from the *current* root spacing every substep.
+* **Felted base**: stiff in stretch, soft in compression (it bunches and crumples), slowly taking a
+  set; second-ring stretch-only *felting tethers* because fibres are longer than the lattice
+  spacing. **Loose tips**: they part almost freely (lock partings open up on the outside of a fold)
+  but resist being crowded together. **Crimp**: staples are compliant in compression.
+* At the **cut line** a lifted staple slides along its still-rooted neighbour (they are entangled
+  along the whole staple), so the fleece parts there instead of tearing.
+* The **handpiece** acts like a plough: the comb runs under the slice, the tilted handpiece lifts
+  its free edge and rolls it back over the uncut wool, cut face up.
 * **Viscoplastic creep** of bending/shear fibres: a fleece rolled back stays rolled back.
-* **Tearing** when the felted base is overstretched for a sustained time; natural partings are
-  weaker (throat), and the belly wool is skirted off separately as shearers do — this opens the
-  sleeve-shaped fleece into a sheet so it can come off in one piece.
+* **Tearing** when the felted base is overstretched for a sustained time.
+* **Nothing is pre-cut.** The fleece starts as a closed sleeve round the sheep. The cutter
+  (`js/cutter.js`) severs rooted staples at the skin, and when the comb goes back along skin an
+  earlier blow already shore, it cuts through the wool that grew there and still lies in its mouth:
+  the mat parts along the middle of the stroke. That is how the shearer opens the fleece (the
+  autopilot goes back along the belly, under the tail and up the throat), and how careless,
+  overlapping blows chop a fleece into pieces. Wool draped over the path from elsewhere rides up
+  over the comb and is not cut, so neat adjacent blows keep the fleece whole.
 * Columns are rooted to the animated skin until the cutter passes, then become dynamic.
 * Small-step **XPBD** solver running in a **Web Worker** (`js/fleeceWorker.js`); the main thread
   keeps a lightweight mirror for cutting and topology, and draws rooted wool with zero latency. Collisions against a precomputed sheep SDF, the still-unshorn wool,
   the board, the **comb/handpiece wedge** (cut wool rides up over the comb and handpiece), and
-  itself (spatial hash).
+  itself (spatial hash; solved inside the substeps with the fibres so folds don't jitter).
 
 ### Rendering (`js/fleeceView.js`, `js/materials.js`)
 The fleece is drawn as a closed thick shell: outer tip surface (blocky staples and lock partings
@@ -72,3 +85,12 @@ shells give fuzzy silhouettes.
 Controls, handling (auto-reposition, area threshold, speed), physics (lattice resolution,
 substeps, elasticity, fibre strength, fleece weight, self-collision), graphics (fibre shells,
 shadows, x-ray clippers, render resolution, FPS) and audio. Settings persist in `localStorage`.
+
+## Testing
+
+Headless tools in `tools/` (Playwright + Chromium in `~/.venvs/shear`):
+
+* `run_scenarios.py`: physics scenarios run on the real solver (patch drop, whole-fleece slump,
+  hang by the neck, re-cut along / beside a blow) with metrics and renders.
+* `sweep.py`: compare physics overrides side by side.
+* `autopilot_snap.py`: run the app with `?autopilot` and take screenshots.

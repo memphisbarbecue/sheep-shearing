@@ -46,7 +46,9 @@ export function saveSettings(s) {
   try { localStorage.setItem(KEY, JSON.stringify(s)); } catch { /* storage unavailable */ }
 }
 
-export const RESOLUTIONS = { low: 0.032, medium: 0.026, high: 0.021 };
+export const RESOLUTIONS = { low: 0.032, medium: 0.023, high: 0.021 };
+// lattice spacing the solver settings are tuned for (substeps scale up for finer lattices)
+export const REFERENCE_RESOLUTION = 0.026;
 
 export function bindingLabel(b) {
   if (!b) return '—';
@@ -154,7 +156,7 @@ export function buildSettingsPanel(root, settings, onChange) {
 
   const p = section('Fleece physics');
   row(p, 'Fleece lattice', select('resolution', [['low', 'Low (fast)'], ['medium', 'Medium'], ['high', 'High (detailed)']], true), 'applies to the next sheep');
-  row(p, 'Solver substeps', slider('substeps', 4, 20, 1, (v) => v));
+  row(p, 'Solver substeps', slider('substeps', 4, 20, 1, (v) => v), 'scaled up automatically for finer lattices');
   row(p, 'Fleece elasticity', slider('elasticity', 0.3, 4, 0.1, (v) => v.toFixed(1) + '×'), 'crimp stretch of the felted mat');
   row(p, 'Fibre strength', slider('fibreStrength', 0.5, 3, 0.1, (v) => v.toFixed(1) + '×'), 'how hard it is to tear the fleece');
   row(p, 'Fleece weight', slider('fleeceWeight', 0.5, 2, 0.1, (v) => v.toFixed(1) + '×'));

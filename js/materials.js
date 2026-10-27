@@ -69,8 +69,9 @@ vec3 woolSurface(out float hgt){
     vec2 F = vor(P);                               // staples (~2 cm)
     float bEdge = B.y - B.x, edge = F.y - F.x;
     float pw = 0.05 + 0.08*vn(vRest*13.0) + 0.5*open;   // parting width varies along its length
-    float parting = (1.0 - smoothstep(0.0, pw, bEdge)) * (0.45 + 0.55*vn(vRest*31.0));
-    float crack = (1.0 - smoothstep(0.0, 0.06 + 0.35*open, edge)) * 0.22 * aaFade(vRest, 52.0);
+    // at rest the locks press together (only faint seams); stretch opens them
+    float parting = (1.0 - smoothstep(0.0, pw, bEdge)) * (0.45 + 0.55*vn(vRest*31.0)) * (0.28 + 0.72*open);
+    float crack = (1.0 - smoothstep(0.0, 0.06 + 0.35*open, edge)) * 0.22 * aaFade(vRest, 52.0) * (0.3 + 0.7*open);
     float gap = max(parting, crack);
     vec3 tip = tipColour(fib);
     vec3 inside = mix(CREAM * 0.9, CREAM * 0.42, 0.35 + 0.65*max(open, parting*0.6));
@@ -109,7 +110,13 @@ function patchWool(shader, defines) {
     .replace('#include <color_fragment>', `#include <color_fragment>
       float woolH;
       vec3 woolCol = woolSurface(woolH);
-      #ifdef SHELL
+      #if defined(SHELL) && defined(WALL)
+        // ragged fibre fringe along cut/torn edges: strands run root -> tip
+        float strandF = mix(0.5, vn(vec3(vRest*520.0)), aaFade(vRest, 520.0))*0.6 + vn(vRest*140.0)*0.4;
+        float reach = strandF * (0.55 + 0.45*vLayer);
+        if (reach < 0.25 + uShell*0.5) discard;
+        woolCol = mix(CREAM*0.95, tipColour(strandF), smoothstep(0.6, 1.0, vLayer));
+      #elif defined(SHELL)
         float fibres = mix(0.5, vn(vRest*vec3(820.0)), aaFade(vRest, 820.0))*0.55 + vn(vRest*vec3(300.0)+1.7)*0.45;
         vec2 Fs = vor(vRest*52.0 + (vec3(vn(vRest*18.0), vn(vRest*18.0+7.3), vn(vRest*18.0+13.1)) - 0.5)*1.3);
         float cover = (1.0 - Fs.x) * fibres * 1.25 - clamp(vStrain-1.0, 0.0, 1.0)*0.5;
@@ -140,6 +147,7 @@ export function makeWoolMaterial({ wall = false, shellT = 0, shellLen = 0.012 } 
   if (shellT > 0) m.defines.SHELL = '';
   m.onBeforeCompile = (shader) => patchWool(shader, { wall, shellT, shellLen });
   m.customProgramCacheKey = () => `wool-${wall}-${shellT > 0}`;
+  if (wall && shellT > 0) m.side = THREE.DoubleSide;
   return m;
 }
 

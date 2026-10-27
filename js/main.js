@@ -5,10 +5,11 @@ import { SheepBody } from './sheep.js';
 import { Fleece, DEFAULT_PHYSICS } from './fleece.js';
 import { FleeceView } from './fleeceView.js';
 import { Clipper, COMB_WIDTH } from './clipper.js';
+import { cutterPass } from './cutter.js';
 import { Director, REGION_ORDER } from './director.js';
 import { ClipperAudio } from './audio.js';
 import { sdfGrad, sheepSDF } from './anatomy.js';
-import { loadSettings, buildSettingsPanel, bindingLabel, RESOLUTIONS } from './settings.js';
+import { loadSettings, buildSettingsPanel, bindingLabel, RESOLUTIONS, REFERENCE_RESOLUTION } from './settings.js';
 
 const FLOOR_Y = -0.95;
 const VIEW_DIR = new THREE.Vector3(0, 0.3, 1).normalize();   // camera direction from its target
@@ -71,7 +72,7 @@ let body, fleece, fleeceView, director;
 // Physics runs in a worker; `fleece` on this thread is a non-simulating mirror.
 const sim = {
   worker: new Worker(new URL('./fleeceWorker.js', import.meta.url), { type: 'module' }),
-  id: 0, ready: false, inFlight: false, spare: null, releases: [], skirt: false,
+  id: 0, ready: false, inFlight: false, spare: null, releases: [], cuts: [],
   tears: 0, nDyn: 0, ms: 0,
 };
 sim.worker.onmessage = (ev) => {
@@ -110,11 +111,13 @@ let exit = null;          // end of shear: sheep walks out of the fleece
 function physicsParams() {
   const e = settings.elasticity;
   return {
-    substeps: settings.substeps,
+    // a finer lattice converges more slowly per substep: keep it as stiff as the reference
+    substeps: Math.round(settings.substeps * (REFERENCE_RESOLUTION / (RESOLUTIONS[settings.resolution] || RESOLUTIONS.medium)) ** 2),
     innerCompliance: DEFAULT_PHYSICS.innerCompliance * e,
     outerCompliance: DEFAULT_PHYSICS.outerCompliance * e,
     shearCompliance: DEFAULT_PHYSICS.shearCompliance * e,
     stapleCompliance: DEFAULT_PHYSICS.stapleCompliance * e,
+    tetherCompliance: DEFAULT_PHYSICS.tetherCompliance * e,
     tearRatio: 1 + (DEFAULT_PHYSICS.tearRatio - 1) * settings.fibreStrength,
     density: DEFAULT_PHYSICS.density * settings.fleeceWeight,
     selfCollision: settings.selfCollision,
@@ -163,13 +166,13 @@ function newFleece() {
   const { R, t } = sheepMatrices();
   fleece.updateAnchors(R, t);
   fleece.reset();
-  sim.id++; sim.ready = false; sim.inFlight = false; sim.releases = []; sim.skirt = false; sim.spare = null;
+  sim.id++; sim.ready = false; sim.inFlight = false; sim.releases = []; sim.cuts = []; sim.spare = null; blow = 0; inBlow = false;
   sim.worker.postMessage({ type: 'init', id: sim.id, resolution: res, physics: physicsParams(), floorY: FLOOR_Y, seed, R, t });
   fleeceView = new FleeceView(fleece, { shells: 3, shadows: settings.shadows });
   fleeceView.setShellsVisible(settings.shells);
   scene.add(fleeceView.group);
   if (director) director.setFleece(fleece); else director = new Director(fleece);
-  presented = null; anim = null; exit = null;
+  presented = null; anim = null; exit = null; autopilot.opened.clear();
   sheepRoot.position.set(0, sheepRoot.position.y, 0);
   startTime = 0; finishTime = 0; pieces = 1;
   $('done').classList.add('hidden');
@@ -265,6 +268,7 @@ function turnTo(region) {
   const angle = 2 * Math.acos(Math.min(1, Math.abs(sheepQ.dot(to))));
   anim = { from: sheepQ.clone(), to, t: 0, dur: (0.5 + angle * 0.45) / settings.repositionSpeed };
   presented = region;
+  autopilot.passes = 0;
   director.recent = [];
 }
 
@@ -288,6 +292,7 @@ const clip = {
 const _v = new THREE.Vector3(), _n = new THREE.Vector3(), _f = new THREE.Vector3(), _inv = new THREE.Quaternion();
 const g3 = [0, 0, 0];
 let lastCutTime = 0;
+let blow = 0, inBlow = false;   // blow number: the cutter only cuts through wool shorn by earlier blows
 
 function updateClipper(dt, now) {
   raycaster.setFromCamera(mouse.ndc, camera);
@@ -328,43 +333,29 @@ function updateClipper(dt, now) {
   const running = held.size >= 0 && (settings.shearMode === 'hold' ? isHeld(settings.shearBinding) : shearing) && !uiOpen();
   clipper.running = running;
   let cuts = 0;
-  if (running && clip.onSheep) {
+  // a blow starts each time the comb goes into the wool with the clippers running
+  if (running && clip.onSheep && !inBlow) blow++;
+  inBlow = running && clip.onSheep;
+  if (inBlow) {
     if (!started) { started = true; }
     const from = clip.lastValid ? clip.lastPos : clip.pos;
-    const dist = from.distanceTo(clip.pos);
-    const steps = Math.max(1, Math.min(40, Math.ceil(dist / 0.008)));
-    const { X, Y, Z } = clipper.basis;
-    const tgt = fleece.target, att = fleece.attached, N = fleece.N, half = COMB_WIDTH / 2;
-    for (let s = 1; s <= steps; s++) {
-      _v.copy(from).lerp(clip.pos, s / steps);
-      for (let i = 0; i < N; i++) {
-        if (!att[i]) continue;
-        const dx = tgt[3 * i] - _v.x, dy = tgt[3 * i + 1] - _v.y, dz = tgt[3 * i + 2] - _v.z;
-        const up = dx * Y.x + dy * Y.y + dz * Y.z;
-        if (up > 0.03 || up < -0.03) continue;
-        const lat = dx * X.x + dy * X.y + dz * X.z;
-        if (lat > half || lat < -half) continue;
-        const fw = dx * Z.x + dy * Z.y + dz * Z.z;
-        if (fw < -0.022 || fw > 0.036) continue;
-        // severed fibres: the column lifts off the comb and rolls back over the handpiece
-        const r = 0.05 * (Math.random() - 0.5);
-        const vx = Y.x * 0.35 - Z.x * 0.12 + r, vy = Y.y * 0.35 - Z.y * 0.12 + r, vz = Y.z * 0.35 - Z.z * 0.12 + r;
-        if (fleece.release(i, vx, vy, vz)) {
-          sim.releases.push([i, vx, vy, vz]);
-          director.onCut(i);
-          cuts++;
-        }
-      }
+    const { released, cutEdges } = cutterPass(fleece, from, clip.pos, clipper.basis, blow);
+    for (const r of released) {
+      sim.releases.push(r);
+      director.onCut(r[0]);
     }
+    for (const e of cutEdges) sim.cuts.push(e);
+    cuts = released.length + cutEdges.length;
     if (cuts) {
       lastCutTime = now;
       if (!startTime) startTime = now;
     }
   }
-  // the comb/handpiece wedge acts on the wool wherever it rests on the skin
+  // the comb/handpiece wedge acts on the wool only while a blow is being made
+  // (between blows the shearer lifts the handpiece clear of the wool)
   const { X, Y, Z } = clipper.basis;
   const c = sim.clipper || (sim.clipper = {});
-  c.active = clip.onSheep;
+  c.active = clip.onSheep && running;
   c.px = clip.pos.x; c.py = clip.pos.y; c.pz = clip.pos.z;
   c.Xx = X.x; c.Xy = X.y; c.Xz = X.z; c.Yx = Y.x; c.Yy = Y.y; c.Yz = Y.z; c.Zx = Z.x; c.Zy = Z.y; c.Zz = Z.z;
 
@@ -379,7 +370,29 @@ function updateClipper(dt, now) {
 // Demonstration/testing mode (?autopilot): shears the presented area with
 // long parallel blows, starting from the open (lower) edge and working up,
 // driving the same pointer -> comb -> cutting path as a player.
-const autopilot = { on: new URLSearchParams(location.search).has('autopilot'), queue: [], wait: 0 };
+const autopilot = { on: new URLSearchParams(location.search).has('autopilot'), queue: [], wait: 0, opened: new Set(), passes: 0, lastFrac: 0 };
+// Opening passes: after shearing these areas the autopilot goes back along the
+// ventral midline, which cuts the shorn wool there and opens the fleece sleeve.
+const OPENERS = {
+  'Belly': (x, y, z, ny) => Math.abs(z) < 0.02 && ny < -0.2 && x > -0.3 && x < 0.3,
+  'Crutch & tail': (x, y, z, ny, nx) => Math.abs(z) < 0.02 && x < -0.34 && y < 0.075 && nx < -0.3,
+  'Left neck': (x, y, z, ny) => Math.abs(z) < 0.02 && x > 0.25 && ny < -0.2,
+};
+function planOpening(area) {
+  const sel = OPENERS[area], pts = [];
+  const p = fleece.basePos, n = fleece.restN, tgt = fleece.target;
+  for (let i = 0; i < fleece.N; i++) {
+    if (!sel(p[3 * i], p[3 * i + 1], p[3 * i + 2], n[3 * i + 1], n[3 * i])) continue;
+    _p.set(tgt[3 * i], tgt[3 * i + 1], tgt[3 * i + 2]).project(camera);
+    if (Math.abs(_p.x) > 1 || Math.abs(_p.y) > 1) continue;
+    pts.push([p[3 * i], _p.x, _p.y]);
+  }
+  if (pts.length < 3) return;
+  pts.sort((a, b) => a[0] - b[0]);   // along the body
+  autopilot.queue.push({ x: pts[0][1], y: pts[0][2], cut: false });
+  for (const [, x, y] of pts) autopilot.queue.push({ x, y, cut: true });
+  autopilot.queue.push({ x: pts[pts.length - 1][1], y: pts[pts.length - 1][2], cut: false });
+}
 const _p = new THREE.Vector3();
 function planStrokes() {
   const area = presented;
@@ -393,25 +406,32 @@ function planStrokes() {
     pts.push([_p.x, _p.y]);
   }
   if (!pts.length) return;
-  const band = 0.05;
+  // one blow per comb width (screen units at the sheep's distance): wider rows leave
+  // stripes for the tidy-up, narrower ones go back over shorn wool and cut the fleece
+  const band = 0.8 * COMB_WIDTH / (camDist * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)));
+  // each tidy-up pass shifts the rows by half a band so it runs along the stripes left between blows
+  const shift = (autopilot.passes % 2) * 0.5 * band;
   const rows = new Map();
   for (const [x, y] of pts) {
-    const k = Math.floor(y / band);
-    const r = rows.get(k) || { lo: 9, hi: -9 };
-    r.lo = Math.min(r.lo, x); r.hi = Math.max(r.hi, x);
-    rows.set(k, r);
+    const k = Math.floor((y - shift) / band);
+    if (!rows.has(k)) rows.set(k, []);
+    rows.get(k).push(x);
   }
   const keys = [...rows.keys()].sort((a, b) => a - b); // bottom (open edge) first
-  let dir = 1;
   for (const k of keys) {
-    const { lo, hi } = rows.get(k);
-    const y = (k + 0.5) * band;
-    const a = lo - 0.03, b = hi + 0.03;
-    const n = Math.max(2, Math.ceil((b - a) / 0.012));
-    autopilot.queue.push({ x: dir > 0 ? a : b, y, cut: false });
-    for (let j = 0; j <= n; j++) autopilot.queue.push({ x: dir > 0 ? a + (b - a) * j / n : b - (b - a) * j / n, y, cut: true });
-    autopilot.queue.push({ x: dir > 0 ? b : a, y, cut: false });
-    dir = 1; // long blows all run the same way (tail to head on screen)
+    const y = (k + 0.5) * band + shift;
+    // one blow per run of unshorn wool: lift over shorn gaps rather than go back over them
+    const xs = rows.get(k).sort((a, b) => a - b);
+    let start = xs[0];
+    for (let q = 1; q <= xs.length; q++) {
+      if (q < xs.length && xs[q] - xs[q - 1] < 0.04) continue;
+      const a = start - 0.03, b = xs[q - 1] + 0.03;
+      const n = Math.max(2, Math.ceil((b - a) / 0.012));
+      autopilot.queue.push({ x: a, y, cut: false });
+      for (let j = 0; j <= n; j++) autopilot.queue.push({ x: a + (b - a) * j / n, y, cut: true });   // long blows all run tail to head on screen
+      autopilot.queue.push({ x: b, y, cut: false });
+      if (q < xs.length) start = xs[q];
+    }
   }
 }
 function runAutopilot(dt) {
@@ -424,7 +444,17 @@ function runAutopilot(dt) {
     autopilot.wait = 0;
     // tidy up: once every area passes the threshold, go back for the leftovers
     const thr = director.nextRegion(settings.regionThreshold) ? settings.regionThreshold : 0.999;
-    if (presented && director.fraction(presented) < thr) planStrokes();
+    // re-plan the presented area until it is done or a pass makes no progress
+    const frac = presented ? director.fraction(presented) : 1;
+    const progressing = autopilot.passes === 0 || frac > autopilot.lastFrac + 0.002;
+    if (presented && frac < thr && progressing && autopilot.passes < 6) {
+      autopilot.lastFrac = frac;
+      planStrokes();
+      autopilot.passes++;
+    } else if (presented && OPENERS[presented] && !autopilot.opened.has(presented)) {
+      autopilot.opened.add(presented);
+      planOpening(presented);
+    }
     if (!autopilot.queue.length) {
       const next = director.nextRegion(thr, presented);
       if (next) turnTo(next);
@@ -440,10 +470,20 @@ window.__sheep = {
   get fleece() { return fleece; }, get director() { return director; }, autopilot,
   shearAll() {
     started = true; startTime = startTime || performance.now() / 1000;
-    if (!fleece.bellySkirted) { fleece.skirtBelly(); sim.skirt = true; }
     for (let i = 0; i < fleece.N; i++) if (fleece.release(i)) sim.releases.push([i, 0, 0, 0]);
     syncDirector();
   },
+  /** Shear every column whose rest (sheep-local) position satisfies pred(x, y, z). */
+  shearWhere(pred) {
+    started = true; startTime = startTime || performance.now() / 1000;
+    const p = fleece.basePos;
+    for (let i = 0; i < fleece.N; i++) {
+      if (pred(p[3 * i], p[3 * i + 1], p[3 * i + 2]) && fleece.release(i, 0, 0, 0, ++blow)) sim.releases.push([i, 0, 0, 0]);
+    }
+    syncDirector();
+  },
+  freeze: false,   // stop the sheep's idle movements (breathing, head, ears, kicks)
+  get sim() { return sim; },
 };
 
 // ---------------------------------------------------------------- loop
@@ -479,12 +519,6 @@ function loop(nowMs) {
       if (next && next !== presented) turnTo(next);
     }
   }
-  // belly wool is pulled away separately once the belly is done
-  if (!fleece.bellySkirted && director.fraction('Belly') >= Math.min(0.9, settings.regionThreshold) && now - lastCutTime > 0.6) {
-    fleece.skirtBelly();
-    sim.skirt = true;
-    syncDirector();
-  }
   // frame the presented area (or the fleece on the board at the end)
   if (exit) {
     const p = fleece.pos; let x = 0, y = 0, z = 0;
@@ -500,7 +534,7 @@ function loop(nowMs) {
 
   // animate the sheep (more agitated while the clippers run)
   let t0 = performance.now();
-  behaviour.step(dt, clipper.running ? 0.6 : 0);
+  if (!window.__sheep.freeze) behaviour.step(dt, clipper.running ? 0.6 : 0);
   body.update(behaviour.ear);
   perf.skin += performance.now() - t0;
   restOnBoard(dt);
@@ -519,13 +553,13 @@ function loop(nowMs) {
   if (sim.ready && !sim.inFlight) {
     while (acc >= STEP && n < 2) { acc -= STEP; n++; }
     if (acc > STEP * 2) acc = 0;
-    if (n || sim.releases.length || sim.skirt) {
+    if (n || sim.releases.length || sim.cuts.length) {
       const msg = {
         type: 'step', id: sim.id, steps: n, dt: STEP, R, t, mats: rig.mats, breath: rig.breath,
-        clipper: { ...sim.clipper }, releases: sim.releases, skirt: sim.skirt, buffer: sim.spare,
+        clipper: { ...sim.clipper }, releases: sim.releases, cuts: sim.cuts, buffer: sim.spare,
       };
       sim.worker.postMessage(msg, sim.spare ? [sim.spare.buffer] : []);
-      sim.inFlight = true; sim.spare = null; sim.releases = []; sim.skirt = false;
+      sim.inFlight = true; sim.spare = null; sim.releases = []; sim.cuts = [];
     }
   } else if (acc > STEP * 4) acc = STEP * 4;
   // rooted (unshorn) columns follow the skin with no latency
@@ -588,9 +622,9 @@ function updateHud(force, now = 0) {
   $('progress-text').textContent = Math.floor(pct * 100) + '% shorn';
   const area = presented || director.workingRegion();
   $('region').textContent = exit ? 'Fleece off — well done' : area ? `${area} · ${Math.round(director.fraction(area) * 100)}%` : 'Choose where to start';
-  const el = startTime ? (finishTime || now) - startTime : 0;
+  const el = startTime ? Math.max(0, (finishTime || now) - startTime) : 0;
   $('timer').textContent = `${Math.floor(el / 60)}:${String(Math.floor(el % 60)).padStart(2, '0')}`;
-  $('pieces').textContent = pieces <= 1 ? 'in one piece' : `torn in ${pieces}`;
+  $('pieces').textContent = pieces <= 1 ? 'in one piece' : `in ${pieces} pieces`;
   renderAreas(area);
   $('fps').classList.toggle('hidden', !settings.showFps);
   $('running').classList.toggle('on', clipper.running);
@@ -618,9 +652,10 @@ function renderAreas(current) {
 }
 
 function showDone(sec) {
+  sec = Math.max(0, sec);
   $('done-time').textContent = `${Math.floor(sec / 60)} min ${Math.round(sec % 60)} s`;
   $('done-weight').textContent = fleece.totalMass.toFixed(1) + ' kg';
-  $('done-pieces').textContent = pieces <= 1 ? 'one piece (plus bellies) — beautiful' : `torn into ${pieces} pieces`;
+  $('done-pieces').textContent = pieces <= 1 ? 'one piece — beautiful' : `in ${pieces} pieces`;
   $('done').classList.remove('hidden');
 }
 

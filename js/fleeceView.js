@@ -81,6 +81,13 @@ export class FleeceView {
     this.wallMesh.frustumCulled = false;
     this.wallMesh.castShadow = shadows; this.wallMesh.receiveShadow = shadows;
     this.group.add(this.wallMesh);
+    // fibre fringe on the walls (the mat's edge is ragged, not a cut block)
+    for (let k = 1; k <= 2; k++) {
+      const m = new THREE.Mesh(wg, makeWoolMaterial({ wall: true, shellT: k / 2, shellLen: 0.009 }));
+      m.frustumCulled = false;
+      this.shells.push(m);
+      this.group.add(m);
+    }
 
     this.wallEdges = new Int32Array(E * 2); // per wall quad: a, b (base indices in winding order)
     this.nWalls = 0;
