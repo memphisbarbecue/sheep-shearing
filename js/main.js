@@ -4,6 +4,9 @@ import { Rig, SheepBehaviour } from './rig.js';
 import { SheepBody } from './sheep.js';
 import { Fleece, DEFAULT_PHYSICS } from './fleece.js';
 import { FleeceView } from './fleeceView.js';
+import { LockView } from './lockView.js';
+// ?view=shell|locks overrides the Fleece look setting (for comparison)
+const VIEW_OVERRIDE = new URLSearchParams(location.search).get('view');
 import { Clipper, COMB_WIDTH } from './clipper.js';
 import { cutterPass } from './cutter.js';
 import { Director, REGION_ORDER } from './director.js';
@@ -168,7 +171,7 @@ function newFleece() {
   fleece.reset();
   sim.id++; sim.ready = false; sim.inFlight = false; sim.releases = []; sim.cuts = []; sim.spare = null; blow = 0; inBlow = false;
   sim.worker.postMessage({ type: 'init', id: sim.id, resolution: res, physics: physicsParams(), floorY: FLOOR_Y, seed, R, t });
-  fleeceView = new FleeceView(fleece, { shells: 3, shadows: settings.shadows });
+  fleeceView = (VIEW_OVERRIDE || settings.fleeceLook) === 'shell' ? new FleeceView(fleece, { shells: 3, shadows: settings.shadows }) : new LockView(fleece, { shadows: settings.shadows });
   fleeceView.setShellsVisible(settings.shells);
   scene.add(fleeceView.group);
   if (director) director.setFleece(fleece); else director = new Director(fleece);

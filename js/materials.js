@@ -2,7 +2,7 @@
 // fibre shells) and the sheep's skin / short hair.
 import * as THREE from 'three';
 
-const NOISE = /* glsl */`
+export const NOISE = /* glsl */`
 float h13(vec3 p){ p = fract(p*0.1031); p += dot(p, p.zyx+31.32); return fract((p.x+p.y)*p.z); }
 vec3 h33(vec3 p){ p = fract(p*vec3(.1031,.1030,.0973)); p += dot(p, p.yxz+33.33); return fract((p.xxy+p.yxx)*p.zyx); }
 float vn(vec3 x){

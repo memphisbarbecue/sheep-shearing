@@ -25,6 +25,7 @@ export const DEFAULTS = {
   fleeceWeight: 1.0,
   selfCollision: true,
   // graphics
+  fleeceLook: 'locks',           // locks (v2 instanced tufts) | shell (v1 closed shell, lighter on the GPU)
   shells: true,
   shadows: true,
   xray: true,
@@ -163,7 +164,8 @@ export function buildSettingsPanel(root, settings, onChange) {
   row(p, 'Fleece self-collision', check('selfCollision'));
 
   const g = section('Graphics');
-  row(g, 'Fibre shells (fuzzy wool edges)', check('shells'));
+  row(g, 'Fleece look', select('fleeceLook', [['locks', 'Locks'], ['shell', 'Shell (fast)']], true), 'applies to the next sheep');
+  row(g, 'Fibre shells (shell look only)', check('shells'));
   row(g, 'Shadows', check('shadows'));
   row(g, 'Show clippers through wool', check('xray'));
   row(g, 'Render resolution', slider('pixelRatio', 0.5, 2, 0.25, (v) => v.toFixed(2) + '×'));

@@ -1,4 +1,6 @@
-# Sheep Shearer
+# Sheep Shearer (v2)
+
+v2 of the app; v1 is the copy one folder up. v2 is the start of a lock-based fleece model.
 
 A browser simulation of shearing a Merino ewe. No build step: plain ES modules + three.js (from a CDN).
 
@@ -75,7 +77,15 @@ The fleece is its own volumetric body, not a texture or a displaced skin:
   the board, the **comb/handpiece wedge** (cut wool rides up over the comb and handpiece), and
   itself (spatial hash; solved inside the substeps with the fibres so folds don't jitter).
 
-### Rendering (`js/fleeceView.js`, `js/materials.js`)
+### Rendering, v2 (`js/lockView.js`)
+v2 draws the fleece as **locks**: one tapered, crimped, lumpy tuft per simulated column in a single
+instanced draw call, built on the GPU from the column's root and tip particles (read straight from the
+simulation's position array, so the CPU does nothing per frame). Each tuft has a creamy cut-face cap
+at the root, fibre streaks and crimp down its sides, shaded crevices low down, and a domed, crusted,
+dusty crown. Partings are the gaps between tufts. Settings → Graphics → Fleece look switches back to the
+v1 shell (lighter on the GPU); `?view=shell` / `?view=locks` override it.
+
+### Rendering, v1 (`js/fleeceView.js`, `js/materials.js`)
 The fleece is drawn as a closed thick shell: outer tip surface (blocky staples and lock partings
 that open up when the mat is stretched over a fold, dust-stained tips), the creamy cut face, and
 **side walls** along every free or torn edge showing fibre striations and crimp. Alpha-tested fibre
